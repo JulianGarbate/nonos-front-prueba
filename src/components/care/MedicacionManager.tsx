@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Pill, Clock, CalendarDays, Package, Plus, X, History, TriangleAlert } from "lucide-react";
+import { CalendarDays, Clock, History, Package, Pill, Plus, TriangleAlert, X } from "lucide-react";
 import {
   Medicamento,
   CambioMedicacion,
@@ -12,16 +12,42 @@ import {
   getCambiosMedicacion,
   mensajeDeError,
 } from "@/lib/api";
-import { Badge, Btn, Card, Empty, ErrorText, Field, formatFecha, Input, Loading, SectionTitle } from "@/components/ui";
+import { useConfirm, useToast } from "@/components/feedback";
+import {
+  Badge,
+  Btn,
+  Card,
+  Collapsible,
+  Disclosure,
+  Empty,
+  ErrorText,
+  Field,
+  IconBubble,
+  Input,
+  ProgressBar,
+  SectionTitle,
+  SkeletonList,
+  cx,
+  formatFecha,
+  stagger,
+} from "@/components/ui";
 
 const DIAS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-const diasTexto = (d: number[]) =>
-  !d || d.length === 0 ? "Todos los días" : [...d].sort((a, b) => a - b).map((x) => DIAS[x]).join(", ");
+const diasTexto = (d: number[]) => (!d || d.length === 0 ? "Todos los días" : [...d].sort((a, b) => a - b).map((x) => DIAS[x]).join(", "));
+
+const ETIQUETAS: Record<string, string> = {
+  nombre: "Nombre",
+  dosis: "Dosis",
+  horariosDelDia: "Horarios",
+  diasSemana: "Días",
+  stockActual: "Stock",
+  stockMinimo: "Aviso desde",
+};
 
 function resumirCambio(json: string) {
   try {
-    return Object.entries(JSON.parse(json))
-      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`)
+    return Object.entries(JSON.parse(json) as Record<string, unknown>)
+      .map(([k, v]) => `${ETIQUETAS[k] ?? k}: ${k === "diasSemana" && Array.isArray(v) ? diasTexto(v as number[]) : Array.isArray(v) ? v.join(", ") : String(v)}`)
       .join(" · ");
   } catch {
     return json;
@@ -29,36 +55,33 @@ function resumirCambio(json: string) {
 }
 
 function Cambios({ medicamentoId }: { medicamentoId: string }) {
-  const [abierto, setAbierto] = useState(false);
   const [items, setItems] = useState<CambioMedicacion[] | null>(null);
 
-  async function toggle() {
-    if (!abierto && items === null) {
-      setItems(await getCambiosMedicacion(medicamentoId).catch(() => []));
-    }
-    setAbierto((v) => !v);
-  }
   return (
-    <div>
-      <button onClick={toggle} className="flex min-h-9 items-center gap-1 text-sm font-semibold text-[#25665F] underline">
-        <History size={16} aria-hidden /> {abierto ? "Ocultar cambios" : "Ver historial de cambios"}
-      </button>
-      {abierto && (
-        <ul className="mt-2 flex flex-col gap-1 rounded-lg bg-[#F1F4F2] p-3 text-sm text-[#3F4947]">
-          {items === null && <Loading />}
-          {items?.length === 0 && <li>Sin cambios registrados.</li>}
-          {items?.map((c) => (
-            <li key={c.id}>
-              <span className="font-semibold">{formatFecha(c.fechaCambio, true)}</span> — {resumirCambio(c.cambio)}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <Disclosure
+      label={["Ver historial de cambios", "Ocultar cambios"]}
+      icon={History}
+      onOpen={() => items === null && getCambiosMedicacion(medicamentoId).then(setItems).catch(() => setItems([]))}
+    >
+      <ol className="flex flex-col gap-2 border-l-2 border-line-strong pl-4 text-sm text-ink-2">
+        {items === null && <li>Cargando…</li>}
+        {items?.length === 0 && <li>Sin cambios registrados.</li>}
+        {items?.map((c) => (
+          <li key={c.id} className="relative">
+            <span aria-hidden className="absolute -left-[1.4rem] top-1.5 h-2.5 w-2.5 rounded-full bg-brand" />
+            <span className="font-semibold text-ink">{formatFecha(c.fechaCambio, true)}</span>
+            <br />
+            {resumirCambio(c.cambio)}
+          </li>
+        ))}
+      </ol>
+    </Disclosure>
   );
 }
 
 export default function MedicacionManager({ adultoMayorId, canEdit }: { adultoMayorId: string; canEdit: boolean }) {
+  const confirmar = useConfirm();
+  const toast = useToast();
   const [items, setItems] = useState<Medicamento[]>([]);
   const [ultimaActualizacion, setUltimaActualizacion] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -66,7 +89,6 @@ export default function MedicacionManager({ adultoMayorId, canEdit }: { adultoMa
   const [error, setError] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
-    setCargando(true);
     try {
       const meds = await getMedicamentos(adultoMayorId);
       setItems(meds);
@@ -90,9 +112,15 @@ export default function MedicacionManager({ adultoMayorId, canEdit }: { adultoMa
   }, [cargar]);
 
   async function baja(m: Medicamento) {
-    if (!confirm(`¿Dar de baja ${m.nombre}?`)) return;
+    const ok = await confirmar({
+      title: `¿Dar de baja ${m.nombre}?`,
+      message: "Deja de figurar como medicación actual. El historial de cambios se conserva.",
+      confirmLabel: "Dar de baja",
+    });
+    if (!ok) return;
     try {
       await deleteMedicamento(m.id);
+      toast.ok(`${m.nombre} se dio de baja.`);
       cargar();
     } catch (e) {
       setError(mensajeDeError(e));
@@ -102,10 +130,17 @@ export default function MedicacionManager({ adultoMayorId, canEdit }: { adultoMa
   return (
     <div className="flex flex-col gap-4">
       <SectionTitle
+        icon={Pill}
         action={
           canEdit && (
             <Btn onClick={() => setForm(form ? null : "nuevo")} variant={form ? "secondary" : "primary"}>
-              {form ? "Cancelar" : (<><Plus size={18} aria-hidden /> Agregar</>)}
+              {form ? (
+                "Cancelar"
+              ) : (
+                <>
+                  <Plus size={18} aria-hidden /> Agregar
+                </>
+              )}
             </Btn>
           )
         }
@@ -113,74 +148,95 @@ export default function MedicacionManager({ adultoMayorId, canEdit }: { adultoMa
         Medicación actual
       </SectionTitle>
 
-      <p className="text-sm text-[#3F4947]">
-        {ultimaActualizacion ? <>Medicación actualizada el <strong>{formatFecha(ultimaActualizacion)}</strong>.</> : "Todavía no hay medicación cargada."}{" "}
+      <p className="text-sm leading-relaxed text-ink-2">
+        {ultimaActualizacion ? (
+          <>
+            Medicación actualizada el <strong>{formatFecha(ultimaActualizacion)}</strong>.
+          </>
+        ) : (
+          "Todavía no hay medicación cargada."
+        )}{" "}
         NONOS registra qué medicación corresponde tomar, no si se tomó cada dosis.
       </p>
 
       <ErrorText>{error}</ErrorText>
 
-      {form && (
-        <FormMedicamento
-          key={form === "nuevo" ? "nuevo" : form.id}
-          adultoMayorId={adultoMayorId}
-          inicial={form === "nuevo" ? null : form}
-          onDone={() => {
-            setForm(null);
-            cargar();
-          }}
-        />
+      <Collapsible open={!!form}>
+        {form && (
+          <FormMedicamento
+            key={form === "nuevo" ? "nuevo" : form.id}
+            adultoMayorId={adultoMayorId}
+            inicial={form === "nuevo" ? null : form}
+            onDone={(msg) => {
+              setForm(null);
+              toast.ok(msg);
+              cargar();
+            }}
+          />
+        )}
+      </Collapsible>
+
+      {cargando && <SkeletonList rows={2} />}
+      {!cargando && items.length === 0 && (
+        <Empty icon={Pill} title="No hay medicamentos cargados">
+          {canEdit ? "Agregá el primero con el botón de arriba." : "Cuando se cargue medicación, la vas a ver acá."}
+        </Empty>
       )}
 
-      {cargando && <Loading />}
-      {!cargando && items.length === 0 && <Empty>No hay medicamentos cargados.</Empty>}
-
-      <ul className="flex flex-col gap-3">
-        {items.map((m) => (
-          <li key={m.id}>
-            <Card className="flex flex-col gap-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#FFDBD1] text-[#98462E]">
-                    <Pill size={20} aria-hidden />
-                  </span>
-                  <div>
-                    <p className="text-lg font-bold text-[#181C1B]">{m.nombre}</p>
-                    <p className="text-sm text-[#3F4947]">Dosis: {m.dosis}</p>
+      <ul className="grid gap-4 lg:grid-cols-2">
+        {items.map((m, i) => {
+          const pct = m.stockActual != null && m.stockMinimo ? Math.min(1, m.stockActual / (m.stockMinimo * 3)) : null;
+          return (
+            <li key={m.id} className="rise" style={stagger(i)}>
+              <Card className={cx("flex h-full flex-col gap-3.5", m.lowStock && "!border-accent/50")}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3.5">
+                    <IconBubble icon={Pill} tone="accent" size={48} />
+                    <div className="min-w-0">
+                      <p className="truncate text-lg font-bold text-ink">{m.nombre}</p>
+                      <p className="text-sm text-ink-2">Dosis: {m.dosis}</p>
+                    </div>
                   </div>
+                  {m.lowStock && (
+                    <Badge tone="warn">
+                      <TriangleAlert size={13} aria-hidden /> Stock bajo
+                    </Badge>
+                  )}
                 </div>
-                {m.lowStock && (
-                  <Badge tone="warn">
-                    <TriangleAlert size={14} aria-hidden /> Stock bajo
-                  </Badge>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {m.horariosDelDia.map((h) => (
-                  <span key={h} className="flex items-center gap-1 rounded-full bg-[#E8F0EE] px-3 py-1 text-sm font-semibold text-[#25665F]">
-                    <Clock size={14} aria-hidden /> {h}
-                  </span>
-                ))}
-              </div>
-              <p className="flex items-center gap-2 text-sm text-[#3F4947]">
-                <CalendarDays size={16} aria-hidden /> {diasTexto(m.diasSemana)}
-              </p>
-              {m.stockActual != null && (
-                <p className="flex items-center gap-2 text-sm text-[#3F4947]">
-                  <Package size={16} aria-hidden /> Stock: {m.stockActual}
-                  {m.stockMinimo != null && <span className="text-[#6F7977]"> (aviso desde {m.stockMinimo})</span>}
+                <div className="flex flex-wrap gap-2">
+                  {m.horariosDelDia.map((h) => (
+                    <span key={h} className="flex items-center gap-1 rounded-full bg-brand-soft px-3 py-1 text-sm font-bold tabular-nums text-brand-ink">
+                      <Clock size={14} aria-hidden /> {h}
+                    </span>
+                  ))}
+                </div>
+                <p className="flex items-center gap-2 text-sm text-ink-2">
+                  <CalendarDays size={16} aria-hidden /> {diasTexto(m.diasSemana)}
                 </p>
-              )}
-              <Cambios medicamentoId={m.id} />
-              {canEdit && (
-                <div className="flex gap-2">
-                  <Btn variant="secondary" onClick={() => setForm(m)}>Registrar cambio</Btn>
-                  <Btn variant="danger" onClick={() => baja(m)}>Dar de baja</Btn>
-                </div>
-              )}
-            </Card>
-          </li>
-        ))}
+                {m.stockActual != null && (
+                  <div className="flex flex-col gap-1.5">
+                    <p className="flex items-center gap-2 text-sm text-ink-2">
+                      <Package size={16} aria-hidden /> Stock: <strong className="text-ink">{m.stockActual}</strong>
+                      {m.stockMinimo != null && <span className="text-ink-3">(aviso desde {m.stockMinimo})</span>}
+                    </p>
+                    {pct !== null && <ProgressBar value={pct} tone={m.lowStock ? "accent" : "brand"} label={`Stock de ${m.nombre}`} />}
+                  </div>
+                )}
+                <Cambios medicamentoId={m.id} />
+                {canEdit && (
+                  <div className="mt-auto flex flex-wrap gap-2 pt-1">
+                    <Btn size="sm" variant="secondary" onClick={() => setForm(m)}>
+                      Registrar cambio
+                    </Btn>
+                    <Btn size="sm" variant="danger" onClick={() => baja(m)}>
+                      Dar de baja
+                    </Btn>
+                  </div>
+                )}
+              </Card>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -193,7 +249,7 @@ function FormMedicamento({
 }: {
   adultoMayorId: string;
   inicial: Medicamento | null;
-  onDone: () => void;
+  onDone: (mensaje: string) => void;
 }) {
   const [nombre, setNombre] = useState(inicial?.nombre ?? "");
   const [dosis, setDosis] = useState(inicial?.dosis ?? "");
@@ -221,7 +277,7 @@ function FormMedicamento({
     try {
       if (inicial) await updateMedicamentoConHistorial(inicial.id, adultoMayorId, payload);
       else await createMedicamento({ ...payload, usuarioId: adultoMayorId });
-      onDone();
+      onDone(inicial ? "Cambio registrado en el historial." : "Medicamento guardado.");
     } catch (err) {
       setError(mensajeDeError(err, "No se pudo guardar el medicamento."));
     } finally {
@@ -231,16 +287,20 @@ function FormMedicamento({
 
   return (
     <Card>
-      <form onSubmit={submit} className="flex flex-col gap-4">
-        <h3 className="text-lg font-bold">{inicial ? `Registrar cambio en ${inicial.nombre}` : "Nuevo medicamento"}</h3>
+      <form onSubmit={submit} className="flex flex-col gap-5">
+        <h3 className="text-lg font-bold text-ink">{inicial ? `Registrar cambio en ${inicial.nombre}` : "Nuevo medicamento"}</h3>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Nombre"><Input required value={nombre} onChange={(e) => setNombre(e.target.value)} /></Field>
-          <Field label="Dosis"><Input required value={dosis} onChange={(e) => setDosis(e.target.value)} placeholder="50 mg" /></Field>
+          <Field label="Nombre">
+            <Input required value={nombre} onChange={(e) => setNombre(e.target.value)} />
+          </Field>
+          <Field label="Dosis">
+            <Input required value={dosis} onChange={(e) => setDosis(e.target.value)} placeholder="50 mg" />
+          </Field>
         </div>
         <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-sm font-semibold text-[#3F4947]">Horarios</legend>
+          <legend className="mb-1 text-sm font-semibold text-ink-2">Horarios</legend>
           {horarios.map((h, i) => (
-            <div key={i} className="flex gap-2">
+            <div key={i} className="flex animate-pop gap-2">
               <Input type="time" required value={h} onChange={(e) => setHorarios(horarios.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Horario ${i + 1}`} />
               {horarios.length > 1 && (
                 <Btn type="button" variant="ghost" aria-label="Quitar horario" onClick={() => setHorarios(horarios.filter((_, j) => j !== i))}>
@@ -249,12 +309,12 @@ function FormMedicamento({
               )}
             </div>
           ))}
-          <Btn type="button" variant="ghost" className="self-start" onClick={() => setHorarios([...horarios, "12:00"])}>
+          <Btn type="button" variant="ghost" size="sm" className="self-start" onClick={() => setHorarios([...horarios, "12:00"])}>
             <Plus size={16} aria-hidden /> Agregar horario
           </Btn>
         </fieldset>
         <fieldset>
-          <legend className="mb-2 text-sm font-semibold text-[#3F4947]">Días (vacío = todos los días)</legend>
+          <legend className="mb-2 text-sm font-semibold text-ink-2">Días (vacío = todos los días)</legend>
           <div className="flex flex-wrap gap-2">
             {DIAS.map((d, i) => {
               const on = dias.includes(i);
@@ -264,7 +324,10 @@ function FormMedicamento({
                   key={d}
                   aria-pressed={on}
                   onClick={() => setDias(on ? dias.filter((x) => x !== i) : [...dias, i])}
-                  className={`min-h-11 min-w-12 rounded-lg border-2 px-3 text-sm font-semibold ${on ? "border-[#25665F] bg-[#E8F0EE] text-[#25665F]" : "border-[#E0E4E3]"}`}
+                  className={cx(
+                    "min-h-11 min-w-13 rounded-xl border-2 px-3 text-sm font-bold transition-all duration-200 active:scale-90",
+                    on ? "border-brand bg-brand-soft text-brand-ink" : "border-line text-ink-2 hover:border-line-strong",
+                  )}
                 >
                   {d}
                 </button>
@@ -273,11 +336,17 @@ function FormMedicamento({
           </div>
         </fieldset>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Stock actual (comprimidos)"><Input type="number" min={0} value={stock} onChange={(e) => setStock(e.target.value)} /></Field>
-          <Field label="Avisar cuando queden" hint="Genera una alerta de stock bajo."><Input type="number" min={0} value={minimo} onChange={(e) => setMinimo(e.target.value)} /></Field>
+          <Field label="Stock actual (comprimidos)">
+            <Input type="number" min={0} value={stock} onChange={(e) => setStock(e.target.value)} />
+          </Field>
+          <Field label="Avisar cuando queden" hint="Genera una alerta de stock bajo.">
+            <Input type="number" min={0} value={minimo} onChange={(e) => setMinimo(e.target.value)} />
+          </Field>
         </div>
         <ErrorText>{error}</ErrorText>
-        <Btn type="submit" loading={guardando}>{inicial ? "Guardar cambio" : "Guardar medicamento"}</Btn>
+        <Btn type="submit" loading={guardando}>
+          {inicial ? "Guardar cambio" : "Guardar medicamento"}
+        </Btn>
       </form>
     </Card>
   );

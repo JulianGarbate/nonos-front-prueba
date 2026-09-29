@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { NotebookPen, Pencil, Plus, ScrollText, Trash2 } from "lucide-react";
 import {
   EventoHistorial,
   Nota,
@@ -16,7 +16,8 @@ import {
   updateNota,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { Btn, Card, Empty, ErrorText, Field, formatDia, formatFecha, Input, Loading, SectionTitle, Textarea } from "@/components/ui";
+import { useConfirm, useToast } from "@/components/feedback";
+import { Badge, Btn, Card, Collapsible, Empty, ErrorText, Field, Input, SectionTitle, SkeletonList, Textarea, formatDia, formatFecha, stagger } from "@/components/ui";
 
 const aInputDate = (iso?: string | null) => (iso ? iso.slice(0, 10) : "");
 
@@ -24,6 +25,8 @@ const aInputDate = (iso?: string | null) => (iso ? iso.slice(0, 10) : "");
 
 export function HistorialManager({ adultoMayorId }: { adultoMayorId: string }) {
   const { user } = useAuth();
+  const confirmar = useConfirm();
+  const toast = useToast();
   const [items, setItems] = useState<EventoHistorial[]>([]);
   const [cargando, setCargando] = useState(true);
   const [form, setForm] = useState<EventoHistorial | "nuevo" | null>(null);
@@ -43,9 +46,10 @@ export function HistorialManager({ adultoMayorId }: { adultoMayorId: string }) {
   }, [cargar]);
 
   async function borrar(ev: EventoHistorial) {
-    if (!confirm("¿Eliminar este registro?")) return;
+    if (!(await confirmar({ title: "¿Eliminar este registro?", message: "Solo vos, como autor, podés borrarlo. No se puede deshacer.", confirmLabel: "Eliminar" }))) return;
     try {
       await deleteHistorial(ev.id);
+      toast.ok("Registro eliminado.");
       cargar();
     } catch (e) {
       setError(mensajeDeError(e));
@@ -55,33 +59,67 @@ export function HistorialManager({ adultoMayorId }: { adultoMayorId: string }) {
   return (
     <div className="flex flex-col gap-3">
       <SectionTitle
-        action={<Btn variant={form ? "secondary" : "primary"} onClick={() => setForm(form ? null : "nuevo")}>{form ? "Cancelar" : (<><Plus size={18} aria-hidden /> Registrar</>)}</Btn>}
+        icon={ScrollText}
+        action={
+          <Btn variant={form ? "secondary" : "primary"} onClick={() => setForm(form ? null : "nuevo")}>
+            {form ? (
+              "Cancelar"
+            ) : (
+              <>
+                <Plus size={18} aria-hidden /> Registrar
+              </>
+            )}
+          </Btn>
+        }
       >
         Historial de acontecimientos
       </SectionTitle>
-      <p className="text-sm text-[#3F4947]">Episodios, consultas o situaciones importantes, para que no queden solo en la memoria de una persona. No reemplaza una historia clínica.</p>
+      <p className="text-sm leading-relaxed text-ink-2">
+        Episodios, consultas o situaciones importantes, para que no queden solo en la memoria de una persona. No reemplaza una historia clínica.
+      </p>
       <ErrorText>{error}</ErrorText>
-      {form && <FormEvento key={form === "nuevo" ? "n" : form.id} adultoMayorId={adultoMayorId} inicial={form === "nuevo" ? null : form} onDone={() => { setForm(null); cargar(); }} />}
-      {cargando && <Loading />}
-      {!cargando && items.length === 0 && <Empty>Todavía no hay acontecimientos registrados.</Empty>}
-      <ol className="flex flex-col gap-3 border-l-2 border-[#BFC9C6] pl-4">
-        {items.map((ev) => {
+      <Collapsible open={!!form}>
+        {form && (
+          <FormEvento
+            key={form === "nuevo" ? "n" : form.id}
+            adultoMayorId={adultoMayorId}
+            inicial={form === "nuevo" ? null : form}
+            onDone={() => {
+              setForm(null);
+              toast.ok("Historial actualizado.");
+              cargar();
+            }}
+          />
+        )}
+      </Collapsible>
+      {cargando && <SkeletonList rows={2} />}
+      {!cargando && items.length === 0 && (
+        <Empty icon={ScrollText} title="Todavía no hay acontecimientos">
+          Caídas, consultas, internaciones… lo que valga la pena recordar.
+        </Empty>
+      )}
+      <ol className="relative flex flex-col gap-4 border-l-2 border-line-strong pl-6">
+        {items.map((ev, i) => {
           const mio = ev.authorId === user?.id;
           return (
-            <li key={ev.id} className="relative">
-              <span className="absolute -left-[1.4rem] top-2 h-3 w-3 rounded-full bg-[#25665F]" aria-hidden />
-              <Card className="flex flex-col gap-1 !p-4">
-                <p className="text-sm font-semibold text-[#25665F]">
+            <li key={ev.id} className="rise relative" style={stagger(i)}>
+              <span aria-hidden className="absolute -left-[1.95rem] top-5 h-3.5 w-3.5 rounded-full border-[3px] border-canvas bg-brand shadow-md" />
+              <Card className="flex flex-col gap-1.5 !p-4">
+                <p className="text-sm font-bold text-brand">
                   {formatDia(ev.fecha)}
                   {ev.fechaFin && <> → {formatDia(ev.fechaFin)}</>}
                 </p>
-                <p className="text-[#181C1B]">{ev.descripcion}</p>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-[#6F7977]">{mio ? "Registrado por vos" : "Registrado por otra persona de la red"}</span>
+                <p className="leading-relaxed text-ink">{ev.descripcion}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <Badge>{mio ? "Registrado por vos" : "Registrado por otra persona de la red"}</Badge>
                   {mio && (
-                    <div className="flex gap-1">
-                      <Btn variant="ghost" aria-label="Editar" onClick={() => setForm(ev)}><Pencil size={16} aria-hidden /></Btn>
-                      <Btn variant="ghost" aria-label="Eliminar" onClick={() => borrar(ev)}><Trash2 size={16} aria-hidden /></Btn>
+                    <div className="flex gap-0.5">
+                      <Btn variant="ghost" size="sm" aria-label="Editar" onClick={() => setForm(ev)}>
+                        <Pencil size={16} aria-hidden />
+                      </Btn>
+                      <Btn variant="ghost" size="sm" aria-label="Eliminar" onClick={() => borrar(ev)}>
+                        <Trash2 size={16} aria-hidden />
+                      </Btn>
                     </div>
                   )}
                 </div>
@@ -118,13 +156,21 @@ function FormEvento({ adultoMayorId, inicial, onDone }: { adultoMayorId: string;
   return (
     <Card>
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field label="¿Qué ocurrió?"><Textarea required value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Ej.: Internación por neumonía" /></Field>
+        <Field label="¿Qué ocurrió?">
+          <Textarea required value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Ej.: Internación por neumonía" />
+        </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Fecha"><Input type="date" required value={fecha} onChange={(e) => setFecha(e.target.value)} /></Field>
-          <Field label="Hasta (opcional)"><Input type="date" min={fecha} value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} /></Field>
+          <Field label="Fecha">
+            <Input type="date" required value={fecha} onChange={(e) => setFecha(e.target.value)} />
+          </Field>
+          <Field label="Hasta (opcional)">
+            <Input type="date" min={fecha} value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
+          </Field>
         </div>
         <ErrorText>{error}</ErrorText>
-        <Btn type="submit" loading={guardando}>Guardar</Btn>
+        <Btn type="submit" loading={guardando}>
+          Guardar
+        </Btn>
       </form>
     </Card>
   );
@@ -134,6 +180,8 @@ function FormEvento({ adultoMayorId, inicial, onDone }: { adultoMayorId: string;
 
 export function NotasManager({ adultoMayorId }: { adultoMayorId: string }) {
   const { user } = useAuth();
+  const confirmar = useConfirm();
+  const toast = useToast();
   const [items, setItems] = useState<Nota[]>([]);
   const [cargando, setCargando] = useState(true);
   const [form, setForm] = useState<Nota | "nuevo" | null>(null);
@@ -153,9 +201,10 @@ export function NotasManager({ adultoMayorId }: { adultoMayorId: string }) {
   }, [cargar]);
 
   async function borrar(n: Nota) {
-    if (!confirm("¿Eliminar esta nota?")) return;
+    if (!(await confirmar({ title: "¿Eliminar esta nota?", message: "El resto de la red deja de verla.", confirmLabel: "Eliminar" }))) return;
     try {
       await deleteNota(n.id);
+      toast.ok("Nota eliminada.");
       cargar();
     } catch (e) {
       setError(mensajeDeError(e));
@@ -165,31 +214,65 @@ export function NotasManager({ adultoMayorId }: { adultoMayorId: string }) {
   return (
     <div className="flex flex-col gap-3">
       <SectionTitle
-        action={<Btn variant={form ? "secondary" : "primary"} onClick={() => setForm(form ? null : "nuevo")}>{form ? "Cancelar" : (<><Plus size={18} aria-hidden /> Nueva nota</>)}</Btn>}
+        icon={NotebookPen}
+        action={
+          <Btn variant={form ? "secondary" : "primary"} onClick={() => setForm(form ? null : "nuevo")}>
+            {form ? (
+              "Cancelar"
+            ) : (
+              <>
+                <Plus size={18} aria-hidden /> Nueva nota
+              </>
+            )}
+          </Btn>
+        }
       >
         Notas compartidas
       </SectionTitle>
-      <p className="text-sm text-[#3F4947]">Lo que un cuidador quiere que sepa el resto de la red. Solo quien la escribió puede editarla.</p>
+      <p className="text-sm leading-relaxed text-ink-2">Lo que un cuidador quiere que sepa el resto de la red. Solo quien la escribió puede editarla.</p>
       <ErrorText>{error}</ErrorText>
-      {form && <FormNota key={form === "nuevo" ? "n" : form.id} adultoMayorId={adultoMayorId} inicial={form === "nuevo" ? null : form} onDone={() => { setForm(null); cargar(); }} />}
-      {cargando && <Loading />}
-      {!cargando && items.length === 0 && <Empty>No hay notas todavía.</Empty>}
-      <ul className="flex flex-col gap-2">
-        {items.map((n) => (
-          <li key={n.id}>
-            <Card className="!p-4">
+      <Collapsible open={!!form}>
+        {form && (
+          <FormNota
+            key={form === "nuevo" ? "n" : form.id}
+            adultoMayorId={adultoMayorId}
+            inicial={form === "nuevo" ? null : form}
+            onDone={() => {
+              setForm(null);
+              toast.ok("Nota guardada.");
+              cargar();
+            }}
+          />
+        )}
+      </Collapsible>
+      {cargando && <SkeletonList rows={2} />}
+      {!cargando && items.length === 0 && (
+        <Empty icon={NotebookPen} title="No hay notas todavía">
+          Dejá un aviso para que el resto de la red esté al tanto.
+        </Empty>
+      )}
+      <ul className="grid gap-3 md:grid-cols-2">
+        {items.map((n, i) => (
+          <li key={n.id} className="rise" style={stagger(i)}>
+            <Card className="flex h-full flex-col gap-2 !p-4">
               <div className="flex items-start justify-between gap-2">
-                <p className="font-semibold text-[#181C1B]">{n.titulo}</p>
-                <span className="shrink-0 text-xs text-[#6F7977]">{formatFecha(n.createdAt)}</span>
+                <p className="font-bold text-ink">{n.titulo}</p>
+                <span className="shrink-0 text-xs text-ink-3">{formatFecha(n.createdAt)}</span>
               </div>
-              <p className="whitespace-pre-wrap text-sm text-[#3F4947]">{n.contenido}</p>
-              <p className="mt-1 text-xs text-[#6F7977]">{n.cuidadorId === user?.id ? "Escrita por vos" : "Escrita por otra persona de la red"}</p>
-              {n.cuidadorId === user?.id && (
-                <div className="mt-2 flex gap-2">
-                  <Btn variant="secondary" onClick={() => setForm(n)}>Editar</Btn>
-                  <Btn variant="danger" onClick={() => borrar(n)}>Eliminar</Btn>
-                </div>
-              )}
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{n.contenido}</p>
+              <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+                <Badge>{n.cuidadorId === user?.id ? "Escrita por vos" : "Escrita por otra persona de la red"}</Badge>
+                {n.cuidadorId === user?.id && (
+                  <div className="flex gap-0.5">
+                    <Btn variant="ghost" size="sm" aria-label="Editar nota" onClick={() => setForm(n)}>
+                      <Pencil size={16} aria-hidden />
+                    </Btn>
+                    <Btn variant="ghost" size="sm" aria-label="Eliminar nota" onClick={() => borrar(n)}>
+                      <Trash2 size={16} aria-hidden />
+                    </Btn>
+                  </div>
+                )}
+              </div>
             </Card>
           </li>
         ))}
@@ -220,10 +303,16 @@ function FormNota({ adultoMayorId, inicial, onDone }: { adultoMayorId: string; i
   return (
     <Card>
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field label="Título"><Input required value={titulo} onChange={(e) => setTitulo(e.target.value)} /></Field>
-        <Field label="Nota"><Textarea required value={contenido} onChange={(e) => setContenido(e.target.value)} /></Field>
+        <Field label="Título">
+          <Input required value={titulo} onChange={(e) => setTitulo(e.target.value)} />
+        </Field>
+        <Field label="Nota">
+          <Textarea required value={contenido} onChange={(e) => setContenido(e.target.value)} />
+        </Field>
         <ErrorText>{error}</ErrorText>
-        <Btn type="submit" loading={guardando}>Guardar</Btn>
+        <Btn type="submit" loading={guardando}>
+          Guardar
+        </Btn>
       </form>
     </Card>
   );

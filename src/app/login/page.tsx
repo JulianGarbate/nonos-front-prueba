@@ -4,10 +4,12 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isAxiosError } from "axios";
+import { LogIn } from "lucide-react";
 import { homeForRol, useAuth } from "@/lib/auth-context";
-import AuthLayout from "@/components/AuthLayout";
+import { mensajeDeError } from "@/lib/api";
+import AuthLayout, { Separador } from "@/components/AuthLayout";
 import GoogleButton from "@/components/GoogleButton";
-import { Btn, ErrorText, Field, Input } from "@/components/ui";
+import { Btn, ErrorText, Field, Input, PageLoading, PasswordInput } from "@/components/ui";
 
 export default function LoginPage() {
   const { user, loading, login, loginWithGoogle } = useAuth();
@@ -26,10 +28,12 @@ export default function LoginPage() {
     setError(null);
     setEnviando(true);
     try {
-      const u = await login(email, password);
+      const u = await login(email.trim(), password);
       router.push(homeForRol(u.rol));
     } catch (err) {
-      setError(isAxiosError(err) && err.response?.status === 401 ? "Email o contraseña incorrectos." : "No pudimos iniciar sesión. Probá de nuevo.");
+      if (isAxiosError(err) && err.response?.status === 401) setError("Email o contraseña incorrectos.");
+      else if (isAxiosError(err) && err.response?.status === 429) setError("Demasiados intentos de ingreso. Por seguridad, esperá unos 15 minutos y probá de nuevo.");
+      else setError(mensajeDeError(err, "No pudimos iniciar sesión. Probá de nuevo."));
     } finally {
       setEnviando(false);
     }
@@ -44,34 +48,36 @@ export default function LoginPage() {
       setError(
         isAxiosError(err) && err.response?.status === 400
           ? "Ese Google todavía no tiene cuenta. Creá una cuenta primero."
-          : "No se pudo iniciar sesión con Google.",
+          : mensajeDeError(err, "No se pudo iniciar sesión con Google."),
       );
     }
   }
 
+  if (loading || user) return <PageLoading />;
+
   return (
-    <AuthLayout titulo="Bienvenido de nuevo">
+    <AuthLayout titulo="Bienvenido de nuevo" subtitulo="Ingresá para ver cómo está tu familia.">
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field label="Correo electrónico">
-          <Input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Input type="email" required autoComplete="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nombre@correo.com" />
         </Field>
         <Field label="Contraseña">
-          <Input type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <PasswordInput required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
         <ErrorText>{error}</ErrorText>
-        <Btn type="submit" size="lg" loading={enviando}>Iniciar sesión</Btn>
+        <Btn type="submit" size="lg" loading={enviando}>
+          <LogIn size={20} aria-hidden /> Iniciar sesión
+        </Btn>
       </form>
 
-      <div className="my-5 flex items-center gap-3" aria-hidden>
-        <div className="h-px flex-1 bg-[#E0E4E3]" />
-        <span className="text-xs text-[#6F7977]">o</span>
-        <div className="h-px flex-1 bg-[#E0E4E3]" />
-      </div>
+      <Separador />
       <GoogleButton onIdToken={google} text="signin_with" />
 
-      <p className="mt-6 text-center text-sm text-[#3F4947]">
+      <p className="mt-7 text-center text-sm text-ink-2">
         ¿No tenés cuenta?{" "}
-        <Link href="/registro" className="font-semibold text-[#25665F] underline">Creá una</Link>
+        <Link href="/registro" className="font-bold text-brand underline-offset-4 hover:underline">
+          Creá una
+        </Link>
       </p>
     </AuthLayout>
   );

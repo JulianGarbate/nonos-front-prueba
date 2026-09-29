@@ -108,6 +108,7 @@ export type TipoCuidador = "FISICO" | "DIGITAL";
 export type TipoAlerta =
   | "SOS_DIRECTO"
   | "FC_ELEVADA"
+  | "FC_BAJA"
   | "MEDICACION_STOCK_BAJO"
   | "SP02_BAJO"
   | "CAMBIO_DE_RUTINA"
@@ -128,8 +129,15 @@ export interface Vinculo {
 export const getVinculos = (adultoMayorId: string) =>
   api.get<Vinculo[]>(`/usuarios/${adultoMayorId}/vinculos`).then((r) => r.data);
 
-export const updateVinculo = (adultoMayorId: string, familiarId: string, tipoVinculo: TipoVinculo) =>
-  api.put<Vinculo>(`/usuarios/${adultoMayorId}/vinculos/${familiarId}`, { tipoVinculo }).then((r) => r.data);
+/**
+ * Solo el adulto mayor puede cambiar el tipo de vínculo. Si el tipo cambia, el
+ * backend restablece los avisos del familiar a los valores por defecto del nuevo rol.
+ */
+export const updateVinculo = (
+  adultoMayorId: string,
+  familiarId: string,
+  payload: { tipoVinculo: TipoVinculo; tipoCuidador?: TipoCuidador },
+) => api.put<Vinculo>(`/usuarios/${adultoMayorId}/vinculos/${familiarId}`, payload).then((r) => r.data);
 
 export const deleteVinculo = (adultoMayorId: string, familiarId: string) =>
   api.delete(`/usuarios/${adultoMayorId}/vinculos/${familiarId}`);
@@ -315,7 +323,7 @@ export interface Alerta {
   estado: EstadoAlerta;
   categoria: "CRITICO" | "INFORMATIVO";
   descripcion: string;
-  datosContexto: { valorMedido?: number; promedio?: number } | null;
+  datosContexto: { valorMedido?: number; promedio?: number; tipoMedicion?: TipoMedicion } | null;
   ventanaExpiraEn: string | null;
   confirmadaEn: string | null;
   escaladaEn: string | null;
@@ -435,14 +443,61 @@ export interface Medicion {
   timestamp: string;
 }
 
-export const getMediciones = (usuarioId: string, tipo: TipoMedicion, desde?: string) =>
-  api.get<Medicion[]>("/mediciones", { params: { usuarioId, tipo, ...(desde && { desde }) } }).then((r) => r.data);
+export const getMediciones = (usuarioId: string, tipo: TipoMedicion, desde?: string, hasta?: string) =>
+  api
+    .get<Medicion[]>("/mediciones", { params: { usuarioId, tipo, ...(desde && { desde }), ...(hasta && { hasta }) } })
+    .then((r) => r.data);
+
+/** Resumen de las últimas 24 h por tipo, calculado en el servidor. */
+export interface ResumenMedicion {
+  tipo: TipoMedicion;
+  ultimoValor: number;
+  ultimaMedicion: string;
+  promedio: number;
+  minimo: number;
+  maximo: number;
+  cantidad: number;
+}
+export const getResumenMediciones = (usuarioId: string) =>
+  api.get<ResumenMedicion[]>("/mediciones/resumen", { params: { usuarioId } }).then((r) => r.data);
+
+/** Rutina habitual (promedio ± desvío) sobre la que el backend decide si alertar. Por defecto, últimos 30 días. */
+export interface RutinaMedicion {
+  tipo: TipoMedicion;
+  promedio: number | null;
+  desviacion: number | null;
+  cantidadMuestras: number;
+  ventana: { desde: string; hasta: string };
+}
+export const getRutina = (usuarioId: string, tipo: TipoMedicion, desde?: string, hasta?: string) =>
+  api
+    .get<RutinaMedicion>("/mediciones/rutina", { params: { usuarioId, tipo, ...(desde && { desde }), ...(hasta && { hasta }) } })
+    .then((r) => r.data);
+
+/* ───────── Notificaciones push (Web Push) ───────── */
+
+export const getVapidPublicKey = () =>
+  api.get<{ publicKey: string }>("/push-tokens/vapid/public-key").then((r) => r.data.publicKey);
+
+export const guardarPushToken = (p: { usuarioId: string; endpoint: string; keys: { p256dh: string; auth: string } }) =>
+  api.post("/push-tokens", { ...p, plataforma: "web" }).then((r) => r.data);
+
+// El endpoint es una URL completa: el backend lo espera codificado en el path.
+export const borrarPushToken = (endpoint: string) => api.delete(`/push-tokens/${encodeURIComponent(endpoint)}`);
+
+/* ───────── Estado del servidor ───────── */
+
+export const getHealth = () =>
+  axios.get<{ status: string }>(`${API_URL}/health`, { timeout: 6000 }).then((r) => r.data.status === "ok");
 
 /* ───────── Helpers ───────── */
 
 export function mensajeDeError(err: unknown, fallback = "Ocurrió un error. Probá de nuevo.") {
   if (axios.isAxiosError(err)) {
-    const d = err.response?.data as { message?: string; error?: string } | undefined;
+    if (!err.response) return "No hay conexión con NONOS. Revisá tu internet y probá de nuevo.";
+    // Los límites de uso del backend (login, QR, SOS) responden 429.
+    if (err.response.status === 429) return "Hiciste demasiados intentos seguidos. Esperá un momento y probá de nuevo.";
+    const d = err.response.data as { message?: string; error?: string } | undefined;
     return d?.message || d?.error || fallback;
   }
   return fallback;

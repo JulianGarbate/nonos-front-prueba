@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { desactivarPush } from "./push";
 import {
   login as loginRequest,
   loginWithGoogle as loginWithGoogleRequest,
@@ -56,6 +57,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     const refreshToken = window.localStorage.getItem(REFRESH);
+    // Este navegador deja de recibir los avisos push de la cuenta que se va.
+    desactivarPush().catch(() => {});
     if (refreshToken) logoutRequest(refreshToken).catch(() => {});
     limpiarSesion();
     setUser(null);

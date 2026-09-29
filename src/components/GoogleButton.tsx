@@ -48,7 +48,8 @@ export default function GoogleButton({
     window.google.accounts.id.renderButton(containerRef.current, {
       theme: "outline",
       size: "large",
-      width: 320,
+      // El botón de Google no es fluido: se ajusta al ancho disponible (mín. 200, máx. 400).
+      width: Math.min(400, Math.max(200, Math.round(containerRef.current.clientWidth || 320))),
       text,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -56,7 +57,7 @@ export default function GoogleButton({
 
   if (!CLIENT_ID) {
     return (
-      <p className="text-center text-xs text-[#BA1A1A]">
+      <p className="text-center text-xs text-danger">
         Falta configurar NEXT_PUBLIC_GOOGLE_CLIENT_ID.
       </p>
     );
@@ -69,7 +70,7 @@ export default function GoogleButton({
         strategy="afterInteractive"
         onLoad={() => setScriptReady(true)}
       />
-      <div ref={containerRef} className="flex justify-center" />
+      <div ref={containerRef} className="flex min-h-11 justify-center [color-scheme:light]" />
     </>
   );
 }
