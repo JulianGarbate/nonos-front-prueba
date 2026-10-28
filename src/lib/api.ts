@@ -59,6 +59,16 @@ api.interceptors.response.use(
 
 export type RolUsuario = "ADULTO_MAYOR" | "FAMILIAR";
 
+export type TipoGrupoSanguineo =
+  | "A_POSITIVO"
+  | "A_NEGATIVO"
+  | "B_POSITIVO"
+  | "B_NEGATIVO"
+  | "AB_POSITIVO"
+  | "AB_NEGATIVO"
+  | "O_POSITIVO"
+  | "O_NEGATIVO";
+
 export interface Usuario {
   id: string;
   email: string;
@@ -68,6 +78,12 @@ export interface Usuario {
   telefono: string | null;
   fotoUrl?: string | null;
   medidasAnticipadas?: string | null;
+  indicacionesCuidado?: string | null;
+  dni?: number | null;
+  domicilio?: string | null;
+  grupoSanguineo?: TipoGrupoSanguineo | null;
+  obraSocial?: string | null;
+  carnetObraSocial?: string | null;
   activo?: boolean;
 }
 
@@ -97,7 +113,17 @@ export const getUsuarioById = (id: string) => api.get<Usuario>(`/usuarios/${id}`
 
 export const updateUsuario = (
   id: string,
-  payload: Partial<{ email: string; nombreCompleto: string; fechaNacimiento: string | null; telefono: string }>,
+  payload: Partial<{
+    email: string;
+    nombreCompleto: string;
+    fechaNacimiento: string | null;
+    telefono: string;
+    dni: number | null;
+    domicilio: string | null;
+    grupoSanguineo: TipoGrupoSanguineo | null;
+    obraSocial: string | null;
+    carnetObraSocial: string | null;
+  }>,
 ) => api.put<Usuario>(`/usuarios/${id}`, payload).then((r) => r.data);
 
 export const deleteUsuario = (id: string) => api.delete(`/usuarios/${id}`);
@@ -164,6 +190,34 @@ export const editarNotificacionesRecibidas = (familiarId: string, adultoMayorId:
 
 export const editarMedidasAnticipadas = (id: string, medidasAnticipadas: string) =>
   api.put<Usuario>(`/usuarios/${id}/medidas-anticipadas`, { medidasAnticipadas }).then((r) => r.data);
+
+export const editarIndicacionesCuidado = (id: string, indicacionesCuidado: string) =>
+  api.put<Usuario>(`/usuarios/${id}/indicaciones-cuidado`, { indicacionesCuidado }).then((r) => r.data);
+
+export interface PreferenciasNotificacion {
+  notifActividad: boolean;
+  notifBienestar: boolean;
+  notifRecordatorios: boolean;
+}
+
+export const getPreferenciasNotificacion = (id: string) =>
+  api.get<PreferenciasNotificacion>(`/usuarios/${id}/preferencias-notificaciones`).then((r) => r.data);
+
+export const editarPreferenciasNotificacion = (id: string, payload: Partial<PreferenciasNotificacion>) =>
+  api.put<PreferenciasNotificacion>(`/usuarios/${id}/preferencias-notificaciones`, payload).then((r) => r.data);
+
+/** URL pública para mostrar en un <img src>: no requiere Authorization. */
+export const getFotoPerfilUrl = (id: string) => `${API_URL}/usuarios/${id}/foto`;
+
+export const subirFotoPerfil = (id: string, archivo: File) => {
+  const formData = new FormData();
+  formData.append("foto", archivo);
+  return api
+    .post<{ fotoUrl: string }>(`/usuarios/${id}/foto`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+    .then((r) => r.data.fotoUrl);
+};
 
 /* ───────── Invitaciones ───────── */
 
@@ -332,9 +386,11 @@ export interface Alerta {
 
 export const getAlertas = (usuarioId: string) =>
   api.get<Alerta[]>("/alertas", { params: { usuarioId } }).then((r) => r.data);
+export const getAlertaById = (id: string) => api.get<Alerta>(`/alertas/${id}`).then((r) => r.data);
 export const dispararSOS = (usuarioId: string) => api.post<Alerta>("/alertas/emergencia", { usuarioId }).then((r) => r.data);
 export const confirmarAlerta = (id: string, isOk: boolean) =>
   api.put(`/alertas/${id}/confirmar`, { isOk }).then((r) => r.data);
+export const cancelarAlerta = (id: string) => api.put<Alerta>(`/alertas/${id}/cancelar`).then((r) => r.data);
 
 export interface Feedback {
   id: string;

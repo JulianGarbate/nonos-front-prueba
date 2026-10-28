@@ -20,6 +20,7 @@ import {
   Alerta,
   Feedback,
   TipoMedicion,
+  cancelarAlerta,
   confirmarAlerta,
   crearFeedback,
   getAlertas,
@@ -191,7 +192,7 @@ export function AlertaPendienteAdulto({ adultoMayorId }: { adultoMayorId: string
 type Filtro = "todas" | "pendientes" | "criticas";
 
 export function AlertasCuidador({ adultoMayorId, nombre }: { adultoMayorId: string; nombre: string }) {
-  const { items, cargando, error } = useAlertas(adultoMayorId);
+  const { items, cargando, error, recargar } = useAlertas(adultoMayorId);
   const [filtro, setFiltro] = useState<Filtro>("todas");
 
   const pendientes = items.filter((a) => a.estado === "PENDIENTE" && a.tipo !== "LOGRO_POSITIVO");
@@ -231,7 +232,7 @@ export function AlertasCuidador({ adultoMayorId, nombre }: { adultoMayorId: stri
       <ul className="flex flex-col gap-3">
         {visibles.map((a, i) => (
           <li key={a.id} className="rise" style={stagger(i)}>
-            <AlertaItem alerta={a} nombre={nombre} />
+            <AlertaItem alerta={a} nombre={nombre} onCambio={recargar} />
           </li>
         ))}
       </ul>
@@ -239,16 +240,30 @@ export function AlertasCuidador({ adultoMayorId, nombre }: { adultoMayorId: stri
   );
 }
 
-function AlertaItem({ alerta: a, nombre }: { alerta: Alerta; nombre: string }) {
+function AlertaItem({ alerta: a, nombre, onCambio }: { alerta: Alerta; nombre: string; onCambio: () => void }) {
   const toast = useToast();
   const [feedbacks, setFeedbacks] = useState<Feedback[] | null>(null);
   const [comentario, setComentario] = useState("");
   const [real, setReal] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
   const restante = useCuentaRegresiva(a.estado === "PENDIENTE" && !a.confirmadaEn ? a.ventanaExpiraEn : null);
 
   const cargarFeedback = useCallback(() => getFeedback(a.id).then(setFeedbacks).catch(() => setFeedbacks([])), [a.id]);
+
+  async function cancelar() {
+    setCancelando(true);
+    try {
+      await cancelarAlerta(a.id);
+      toast.ok("Alerta cancelada: avisamos que fue una falsa alarma.");
+      onCambio();
+    } catch (err) {
+      toast.error(mensajeDeError(err));
+    } finally {
+      setCancelando(false);
+    }
+  }
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
@@ -305,6 +320,11 @@ function AlertaItem({ alerta: a, nombre }: { alerta: Alerta; nombre: string }) {
             )}
             {restante !== null && restante > 0 && <Badge tone="neutral">Esperando respuesta · {mmss(restante)}</Badge>}
           </div>
+          {a.estado === "PENDIENTE" && (
+            <Btn type="button" size="sm" variant="secondary" loading={cancelando} onClick={cancelar} className="mt-2">
+              Cancelar: fue una falsa alarma
+            </Btn>
+          )}
         </div>
       </div>
 

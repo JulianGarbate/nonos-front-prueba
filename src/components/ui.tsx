@@ -357,8 +357,30 @@ export function iniciales(nombre?: string | null) {
   return ((partes[0]?.[0] ?? "") + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
 }
 
-export function Avatar({ nombre, size = 40, className }: { nombre?: string | null; size?: number; className?: string }) {
+export function Avatar({
+  nombre,
+  fotoUrl,
+  size = 40,
+  className,
+}: {
+  nombre?: string | null;
+  fotoUrl?: string | null;
+  size?: number;
+  className?: string;
+}) {
   const hash = [...(nombre ?? "")].reduce((a, c) => a + c.charCodeAt(0), 0);
+  if (fotoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={fotoUrl}
+        alt=""
+        aria-hidden
+        style={{ width: size, height: size }}
+        className={cx("inline-block shrink-0 rounded-full object-cover", className)}
+      />
+    );
+  }
   return (
     <span
       aria-hidden
