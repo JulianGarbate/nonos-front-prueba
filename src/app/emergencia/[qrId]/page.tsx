@@ -13,7 +13,7 @@ const ERRORES: Record<number, string> = {
   401: "El código es incorrecto. Revisalo en la app de NONOS de la persona o de su familiar. Después de 5 intentos fallidos el acceso se bloquea.",
   404: "Este acceso no existe o fue desactivado.",
   410: "El código venció o el acceso se bloqueó por demasiados intentos. Pedí que generen uno nuevo en la app de NONOS.",
-  429: "Hiciste demasiados intentos seguidos. Esperá un minuto y probá de nuevo.",
+  429: "Hiciste demasiados intentos seguidos y el acceso quedó bloqueado por 15 minutos. Probá de nuevo más tarde.",
 };
 
 /**
